@@ -21,7 +21,7 @@ train.csv contains a whopping 2051 rows and 81 columns so there's a lot we need 
 
 After the initial import into the dataframe, I started by generating a list of percentages of null values in each feature. This helps to give a broad overview of which features have so many missing values that it would no be useful for modelling. Features with more than 90% null values were discarded.
 
-Next, I ran a describe() on the data set, followed by value_counts(dropna=False) to give a rough sense of the distribution for each feature, and to make sanity checks on data types, including whether a feature should ultimately be categorical (if so, nominal or ordinal) or numerical. During the process, I recorded in the notebook how many rows of null and 0 or "None" values each feature has, while also cross-referencing the data dictionary provided on Kaggle.
+Next, I ran a describe() on the data set, followed by value_counts(dropna=False) to give a rough sense of the distribution for each non-numeric feature. The latter allowed me to decide if a feature should ultimately be nominal or ordinal. During the process, I recorded in the notebook how many rows of null and 0 or "None" values each feature has, while also cross-referencing the data dictionary provided on Kaggle.
 
 Since we often have sets of related features - e.g. "Mas Vnr Type" (masonry veneer type) and "Mas Vnr Area" - this quick look-through helped me gain a sense of what's causing our NaN/"None"/0 values. For instance, we can infer from the data dictionary that if "Mas Vnr Type" is NaN or "None", it would make sense for "Mas Vnr Area" to have 0 or NaN. We can also infer again that in such cases, NaN values are not the result of errors in data gathering, but rather they reflect real-world circumstances (i.e. no masonry veneer). Comparing the number of rows with NaN/"None"/0 for related features also gives us a sense of how much data processing we'll need to do - would it be a simple fillna()? Or will we need to actual impute data by inferring trends from other rows for a particular feature?
 
@@ -34,9 +34,6 @@ While most of the cells with NaN were truly meant to be "None" or 0 (i.e. the da
 For instance, "BsmtFin SF 1" and "BsmtFin SF 2" only indicate sqft area for basement area that's finished, so there's another feature "Bsmt Unf SF" that indicates how many sqft is unfinished. Strangely, about 50 or so rows that were expected to be finished (based on "BsmtFin Type 1" or "BsmtFin Type 2" classes) were 0 for "Bsmt Unf SF". This required deciding whether we should drop the rows or to impute missing values.
 
 "Lot Frontage" was another row that needed a bit more fixing. Based on research, I determined that it's unlikely for houses in the U.S. to not have lot frontage, so I imputed based on median values.
-
-With test.csv, since there is a hard requirement in terms of the number of expected rows for submission to Kaggle, there were instances where I might have dropped (when affected rows were no more than 2-3% of the data) some rows but had to impute based on median and mode instead.
-
 
 #### Preprocessing and Modeling
 
@@ -54,14 +51,57 @@ Scaling, of course, is necessary, given that we have a very mixed bag of feature
 
 train_test_split was also relied upon to help train the model; the default parameters were used, since those are industry standards that have been extensively researched.
 
-
 #### Evaluation and Conceptual Understanding
 
-I considered the R<sup>2</sup> score from running linear regresson on the numerical + ordinal features (i.e. after mapping) to be my baseline score. For X_train, X_test, as well as the overall X, the scores were about 0.83.
+Since Kaggle explicity stated that RMSE (Root Mean Square Error, the lower the better) will be used for grading, I made a point to factor that into my evaluation of the models. 
 
-After doing LassoCV and additional rounds of feature engineering, I arrived at R<sup>2</sup> scores around 0.87. The X_test score was 0.02 better than the X_train score, and just 0.01 better than the overall X score, which I decided to be at an acceptable range.
+For the train dataset, using Linear Regression, my model performed quite poorly initially.
 
-The cleaned up test set was fit with the optimal alpha, as well as StandardScaler.transform using parameters from X.
+````
+X_train RMSE is: 26396.60407332863
+X_val RMSE is: 787596163735163.0
+RMSE score worsened (is higher) for X_val
+Overal RMSE is: 393897163032029.7
+````
+
+However, after I'd used LassoCV to help me with feature selection, RMSE scores on both the validation set and the overall train set improved (i.e. shrunk). Generally, the validation set has a lower RMSE compared to the overall train set; but as long as the model is not overfitting, that's still fine.
+
+These were my results after selecting only the top 30 features.
+
+````
+X_train score is: 0.8687386669695785
+X_val score is: 0.8870384594659668
+Overall train score is: 0.873217485264655
+
+X_train RMSE is: 28991.34700939357
+X_val RMSE is: 26501.649684333162
+RMSE score improved (is lower) for X_val
+Overal RMSE is: 28389.093451118657
+````
+
+#### Prepping the test set
+
+For the test set, I started out by dropping the columns that are no longer in the train set. That way, it makes the EDA for the test set much quicker.
+
+However, keeping in mind that some columns in train were completely 'new' thanks to one-hot-encoding, I made sure to compare substrings. For instance, we want to keep 'land_contour' because it corresponds to 'land_contour_hls' (a result of get_dummies) which came up in our model's top 30 features.
+
+In addition, I also retained a few columns that I'd used for feature-engineering, namely 'bsmt_full_bath', 'total_baths', 'bsmt_half_bath' - for calculating 'total_baths' and 'full_bath'.
+
+#### Predicting with the test set
+
+The cleaned up test set was scaled using the cleaned train set. For modeling, I'd used Lasso with the same optimal alpha derived during the earlier modeling phases with the train set. 
+
+I also tried using Linear Regression for comparison.
+
+*Kaggle scores using Linear Regression*
+* Private: 30431.20531
+* Public: 31041.80593
+
+*Kaggle scores using Lasso*
+* Private: 30541.45008
+* Public: 30938.56939
+
+Both seem to fare similarly; Linear Regression was slightly better on the private score, whereas Lasso performed slightly better on the public score.
 
 ### Conclusion and Recommendations
 
@@ -78,7 +118,6 @@ Based on the Lasso coefficients, these are the top 10 features that I have deter
 * mas_vnr_area
 * bsmt_exposure (the quality, if applicable, of walkout or garden level basement walls)
 
-
 The 5 features that have the stronges negative coefficient scores are:
 
 * bldg_type_twnhse (Townhouse End Unit)
@@ -86,3 +125,9 @@ The 5 features that have the stronges negative coefficient scores are:
 * neighborhood_edwards
 * land_contour_bnk (banked)
 * mas_vnr_type_brkface (brick face)
+
+For property investors, I would recommend 
+* investing in houses with a large gross living area, preferably a Single-family Detached type with a spacious garage
+* investing houses that are either already of good overall quality (interiors and exteriors), or spending on renovation
+* to ensure that the kitchen is inviting and in a good condition - after all, cooking/entertaining is very trendy now
+* investing in Northbidge and Stonebrook neighborhoods
